@@ -40,6 +40,10 @@ target_include_directories(pmdmini_static PUBLIC
     ${pmdmini_SOURCE_DIR}/src/fmgen
 )
 
+# GCC 15+ on Windows: _splitpath/_makepath conflict with stdlib declarations
+if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    target_compile_options(pmdmini_static PRIVATE -fpermissive)
+endif()
 suppress_external_warnings(pmdmini_static)
 set_target_properties(pmdmini_static PROPERTIES
     POSITION_INDEPENDENT_CODE ON
