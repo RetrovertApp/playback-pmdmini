@@ -6,6 +6,6 @@
  	static uint8 table2[4] = {  0,  0, 31, 31 };
 -	static uint8 table3[4] = {  0,  1, -1,  0 };
 +	static uint8 table3[4] = {  0,  1, (uint8)-1,  0 };
-
+ 
  	if (!enveloptable[0][0])
  	{
