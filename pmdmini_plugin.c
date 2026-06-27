@@ -18,6 +18,7 @@
 
 #include "pmdmini.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -287,38 +288,68 @@ static void pmdmini_plugin_static_init(const RVService* service_api) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static uint32_t pmdmini_plugin_get_scope_data(void* user_data, int channel, float* buffer, uint32_t num_samples) {
+static bool pmdmini_plugin_get_structure(void* user_data, RVVizInfo* out) {
     PmdReplayerData* data = (PmdReplayerData*)user_data;
-    if (data == nullptr || !data->file_open || buffer == nullptr) {
-        return 0;
+    if (data == nullptr || out == nullptr) {
+        return false;
     }
 
-    if (!data->scope_enabled) {
-        pmd_scope_enable(1);
-        data->scope_enabled = true;
-    }
-
-    // Channels 0-5: FM, channels 6-8: SSG
-    if (channel < 6) {
-        return pmd_fm_scope_get_data(channel, buffer, num_samples);
-    } else if (channel < 9) {
-        return psg_scope_get_data(channel - 6, buffer, num_samples);
-    }
-
-    return 0;
+    out->caps = RVVizCaps_Scope;
+    out->scroll_mode = RVScrollMode_Synchronized;
+    out->pattern_channel_count = 0;
+    out->scope_channel_count = 9; // OPNA: 6 FM + 3 SSG channels
+    out->column_count = 0;
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static uint32_t pmdmini_plugin_get_scope_channel_names(void* user_data, const char** names, uint32_t max_channels) {
+static uint32_t pmdmini_plugin_get_scope_channels(void* user_data, RVChannelDesc* out, uint32_t cap) {
     (void)user_data;
+    if (out == nullptr) {
+        return 0;
+    }
+
     static const char* s_names[] = { "FM 1", "FM 2", "FM 3", "FM 4", "FM 5", "FM 6", "SSG 1", "SSG 2", "SSG 3" };
     uint32_t count = 9;
-    if (count > max_channels)
-        count = max_channels;
-    for (uint32_t i = 0; i < count; i++)
-        names[i] = s_names[i];
+    if (count > cap)
+        count = cap;
+    for (uint32_t i = 0; i < count; i++) {
+        memset(out[i].name, 0, sizeof(out[i].name));
+        snprintf((char*)out[i].name, sizeof(out[i].name), "%s", s_names[i]);
+        out[i].scope_width = 0;
+    }
     return count;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static void pmdmini_plugin_set_scope_enabled(void* user_data, bool on) {
+    PmdReplayerData* data = (PmdReplayerData*)user_data;
+    if (data == nullptr) {
+        return;
+    }
+
+    pmd_scope_enable(on ? 1 : 0);
+    data->scope_enabled = on;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static uint32_t pmdmini_plugin_get_scope_samples(void* user_data, int32_t channel, float* out, uint32_t cap) {
+    PmdReplayerData* data = (PmdReplayerData*)user_data;
+    if (data == nullptr || !data->file_open || out == nullptr || !data->scope_enabled) {
+        return 0;
+    }
+
+    // Channels 0-5: FM, channels 6-8: SSG
+    if (channel < 6) {
+        return pmd_fm_scope_get_data(channel, out, cap);
+    } else if (channel < 9) {
+        return psg_scope_get_data(channel - 6, out, cap);
+    }
+
+    return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -340,12 +371,19 @@ static RVPlaybackPlugin g_pmdmini_plugin = {
     pmdmini_plugin_metadata,
     pmdmini_plugin_static_init,
     nullptr, // settings_updated
-    nullptr, // get_tracker_info
-    nullptr, // get_pattern_cell
-    nullptr, // get_pattern_num_rows
-    pmdmini_plugin_get_scope_data,
     nullptr, // static_destroy
-    pmdmini_plugin_get_scope_channel_names,
+
+    // Visualization: scope-only (OPNA FM + SSG channels, no pattern grid).
+    pmdmini_plugin_get_structure,
+    nullptr, // get_columns
+    nullptr, // get_pattern_channels
+    pmdmini_plugin_get_scope_channels,
+    nullptr, // get_position
+    nullptr, // get_channel_rows
+    nullptr, // get_cells
+    pmdmini_plugin_set_scope_enabled,
+    pmdmini_plugin_get_scope_samples,
+    nullptr, // get_vu
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
