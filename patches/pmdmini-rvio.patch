@@ -1,0 +1,225 @@
+diff --git a/src/pmd_io.cpp b/src/pmd_io.cpp
+new file mode 100644
+index 0000000..884a116
+--- /dev/null
++++ b/src/pmd_io.cpp
+@@ -0,0 +1,136 @@
++#define PMD_IO_IMPLEMENTATION
++#include "pmd_io.h"
++
++#include <limits.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++
++typedef struct PmdMemoryFile {
++    unsigned char *data;
++    size_t size;
++    size_t position;
++} PmdMemoryFile;
++
++static pmd_file_load_callback g_load_callback = NULL;
++static pmd_file_free_callback g_free_callback = NULL;
++
++void pmd_set_file_callbacks(pmd_file_load_callback load_callback,
++                            pmd_file_free_callback free_callback)
++{
++    g_load_callback = load_callback;
++    g_free_callback = free_callback;
++}
++
++FILE *pmd_io_fopen(const char *filename, const char *mode)
++{
++    PmdMemoryFile *file;
++    unsigned long long loaded_size = 0;
++    void *loaded_data;
++
++    if (g_load_callback == NULL)
++        return fopen(filename, mode);
++    if (mode == NULL || strcmp(mode, "rb") != 0)
++        return NULL;
++
++    loaded_data = g_load_callback(filename, &loaded_size);
++    if (loaded_data == NULL || loaded_size > (unsigned long long)SIZE_MAX) {
++        if (loaded_data != NULL && g_free_callback != NULL)
++            g_free_callback(loaded_data);
++        return NULL;
++    }
++
++    file = (PmdMemoryFile *)malloc(sizeof(*file));
++    if (file == NULL) {
++        if (g_free_callback != NULL)
++            g_free_callback(loaded_data);
++        return NULL;
++    }
++
++    file->data = (unsigned char *)loaded_data;
++    file->size = (size_t)loaded_size;
++    file->position = 0;
++    return (FILE *)file;
++}
++
++size_t pmd_io_fread(void *buffer, size_t size, size_t count, FILE *stream)
++{
++    PmdMemoryFile *file;
++    size_t requested;
++    size_t available;
++    size_t copied;
++
++    if (g_load_callback == NULL)
++        return fread(buffer, size, count, stream);
++    if (stream == NULL || buffer == NULL || size == 0 || count == 0)
++        return 0;
++    if (count > SIZE_MAX / size)
++        return 0;
++
++    file = (PmdMemoryFile *)stream;
++    requested = size * count;
++    available = file->size - file->position;
++    copied = requested < available ? requested : available;
++    memcpy(buffer, file->data + file->position, copied);
++    file->position += copied;
++    return copied / size;
++}
++
++int pmd_io_fseek(FILE *stream, long offset, int origin)
++{
++    PmdMemoryFile *file;
++    long long base;
++    long long position;
++
++    if (g_load_callback == NULL)
++        return fseek(stream, offset, origin);
++    if (stream == NULL)
++        return -1;
++
++    file = (PmdMemoryFile *)stream;
++    if (origin == SEEK_SET)
++        base = 0;
++    else if (origin == SEEK_CUR)
++        base = (long long)file->position;
++    else if (origin == SEEK_END)
++        base = (long long)file->size;
++    else
++        return -1;
++
++    position = base + (long long)offset;
++    if (position < 0 || (unsigned long long)position > (unsigned long long)file->size)
++        return -1;
++    file->position = (size_t)position;
++    return 0;
++}
++
++long pmd_io_ftell(FILE *stream)
++{
++    PmdMemoryFile *file;
++
++    if (g_load_callback == NULL)
++        return ftell(stream);
++    if (stream == NULL)
++        return -1;
++
++    file = (PmdMemoryFile *)stream;
++    if (file->position > (size_t)LONG_MAX)
++        return -1;
++    return (long)file->position;
++}
++
++int pmd_io_fclose(FILE *stream)
++{
++    PmdMemoryFile *file;
++
++    if (g_load_callback == NULL)
++        return fclose(stream);
++    if (stream == NULL)
++        return -1;
++
++    file = (PmdMemoryFile *)stream;
++    if (g_free_callback != NULL)
++        g_free_callback(file->data);
++    free(file);
++    return 0;
++}
+diff --git a/src/pmd_io.h b/src/pmd_io.h
+new file mode 100644
+index 0000000..8bafced
+--- /dev/null
++++ b/src/pmd_io.h
+@@ -0,0 +1,31 @@
++#ifndef PMD_IO_H
++#define PMD_IO_H
++
++#include <stddef.h>
++#include <stdio.h>
++
++#include "pmdmini.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++FILE *pmd_io_fopen(const char *filename, const char *mode);
++size_t pmd_io_fread(void *buffer, size_t size, size_t count, FILE *stream);
++int pmd_io_fseek(FILE *stream, long offset, int origin);
++long pmd_io_ftell(FILE *stream);
++int pmd_io_fclose(FILE *stream);
++
++#ifdef __cplusplus
++}
++#endif
++
++#ifndef PMD_IO_IMPLEMENTATION
++#define fopen pmd_io_fopen
++#define fread pmd_io_fread
++#define fseek pmd_io_fseek
++#define ftell pmd_io_ftell
++#define fclose pmd_io_fclose
++#endif
++
++#endif
+diff --git a/src/pmdmini.h b/src/pmdmini.h
+index b33d857..aa5c16a 100644
+--- a/src/pmdmini.h
++++ b/src/pmdmini.h
+@@ -16,6 +16,19 @@ extern "C" {
+ #ifndef __PMDMINI_H__
+ #define __PMDMINI_H__
+ 
++typedef void *(*pmd_file_load_callback)(const char *filename, unsigned long long *size);
++typedef void (*pmd_file_free_callback)(void *data);
++
++/**
++ * \brief Overrides pmdmini's read-only file access.
++ *
++ * The load callback returns a complete file buffer and its size. The matching
++ * free callback releases buffers returned by the load callback. Passing NULL
++ * callbacks restores the standard filesystem implementation.
++ */
++void pmd_set_file_callbacks(pmd_file_load_callback load_callback,
++                            pmd_file_free_callback free_callback);
++
+ 
+ /**
+  * \brief Initializes the library.
+diff --git a/src/pmdwin/util.cpp b/src/pmdwin/util.cpp
+index 8ec175c..89038a4 100755
+--- a/src/pmdwin/util.cpp
++++ b/src/pmdwin/util.cpp
+@@ -3,7 +3,7 @@
+ //				Programmed by C60
+ //=============================================================================
+ 
+-#ifdef WINDOWS
++#if defined(WINDOWS) && !defined(PMD_IO_ENABLED)
+ #include	<windows.h>
+ #include	<mbstring.h>
+ #endif
+@@ -18,7 +18,7 @@
+ //=============================================================================
+ _int64 GetFileSize_s(char *filename)
+ {
+-#ifdef WINDOWS
++#if defined(WINDOWS) && !defined(PMD_IO_ENABLED)
+ 	HANDLE	handle;
+ 	WIN32_FIND_DATA	FindFileData;
+ 

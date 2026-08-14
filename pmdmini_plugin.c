@@ -11,6 +11,7 @@
 #define nullptr ((void*)0)
 #endif
 
+#include <retrovert/io.h>
 #include <retrovert/log.h>
 #include <retrovert/metadata.h>
 #include <retrovert/playback.h>
@@ -34,7 +35,23 @@
 
 RV_PLUGIN_USE_LOG_API();
 RV_PLUGIN_USE_METADATA_API();
+RV_PLUGIN_USE_IO_API();
 static int g_pmd_initialized = 0;
+
+static void* pmdmini_rvio_load(const char* url, unsigned long long* size) {
+    RVIoReadUrlResult result = rv_io_read_url_to_memory(url);
+    if (result.data == nullptr) {
+        *size = 0;
+        return nullptr;
+    }
+
+    *size = (unsigned long long)result.data_size;
+    return result.data;
+}
+
+static void pmdmini_rvio_free(void* data) {
+    rv_io_free_url_to_memory(data);
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -278,6 +295,8 @@ static void pmdmini_plugin_event(void* user_data, uint8_t* event_data, uint64_t 
 static void pmdmini_plugin_static_init(const RVService* service_api) {
     rv_init_log_api(service_api);
     rv_init_metadata_api(service_api);
+    rv_init_io_api(service_api);
+    pmd_set_file_callbacks(pmdmini_rvio_load, pmdmini_rvio_free);
 
     if (!g_pmd_initialized) {
         pmd_init();
