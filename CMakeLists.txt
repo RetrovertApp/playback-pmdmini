@@ -77,7 +77,12 @@ target_include_directories(pmdmini_playback PRIVATE
 
 target_link_libraries(pmdmini_playback PRIVATE pmdmini_static)
 if(UNIX)
-    target_link_libraries(pmdmini_playback PRIVATE stdc++ m)
+    # The plugin is C but pmdmini is C++: link with the C++ driver so the
+    # C++ runtime follows the toolchain's static/dynamic choice instead of
+    # an explicit -lstdc++ always DT_NEEDing the shared one. On Windows the
+    # C++ runtime comes from MSVC's CRT automatically.
+    set_target_properties(pmdmini_playback PROPERTIES LINKER_LANGUAGE CXX)
+    target_link_libraries(pmdmini_playback PRIVATE m)
 endif()
 
 target_compile_options(pmdmini_playback PRIVATE
