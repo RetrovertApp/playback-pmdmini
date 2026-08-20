@@ -209,7 +209,8 @@ static RVReadInfo pmdmini_plugin_read_data(void* user_data, RVReadData dest) {
     }
 
     // Calculate how many S16 stereo frames fit in the output buffer
-    uint32_t max_frames = dest.channels_output_max_bytes_size / (sizeof(int16_t) * 2);
+    uint32_t capacity_frames = dest.channels_output_max_bytes_size / (sizeof(int16_t) * 2);
+    uint32_t max_frames = dest.info.frame_count < capacity_frames ? dest.info.frame_count : capacity_frames;
 
     // pmd_renderer outputs interleaved stereo S16 directly to output buffer
     pmd_renderer((int16_t*)dest.channels_output, (int)max_frames);

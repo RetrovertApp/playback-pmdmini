@@ -1,0 +1,10 @@
+[plugin]
+name = "pmdmini"
+
+[data]
+entries = []
+
+[[fixtures]]
+file = "fixtures/pmd48s.zip"
+sha256 = "1b05a0e8f9a16c7649b32d69a5517970b7b155a6e73993177b79f3f7cff222e8"
+members = ["SAMPLE.M"]
